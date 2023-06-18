@@ -47,6 +47,6 @@ public class LevelListener extends ListenerAdapter {
             if (channel != null) channel.sendMessage(event.getAuthor().getAsMention() + " IS NOW " + entry.getLevel() + "! <:trol:804497097809592331>").queue();
         }
 
-        BotStorage.saveLevelEntry(entry);
+        BotStorage.saveLevelEntry(event.getAuthor().getIdLong(), entry);
     }
 }

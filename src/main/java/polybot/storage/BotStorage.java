@@ -16,7 +16,7 @@ public class BotStorage {
             c = DriverManager.getConnection("jdbc:sqlite:polybot.db");
             Statement initDB = c.createStatement();
             //initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `mod_log` (`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, `server` INTEGER NOT NULL, `time` INTEGER NOT NULL, `user` INTEGER NOT NULL, `action` VARCHAR(32) NOT NULL, `target` INTEGER NOT NULL, `reason` TEXT NOT NULL);");
-            initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `levels` (`id` INTEGER NOT NULL, `currLvl` INTEGER NOT NULL, `xp` INTEGER NOT NULL);");
+            initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `levels` (`id` INTEGER NOT NULL, `currLvl` INTEGER NOT NULL, `xp` INTEGER NOT NULL, PRIMARY KEY(`id`));");
             initDB.close();
         } catch (ClassNotFoundException | SQLException e) {
             PolyBot.getLogger().error("Cannot load database, exiting", e);
@@ -28,18 +28,18 @@ public class BotStorage {
 
     public static LevelEntry getLevelEntry(long userId) {
         try (Statement statement = connection.createStatement()) {
-            try (ResultSet resultSet = statement.executeQuery("SELECT `id`, `currLvl`, `xp` FROM `levels` WHERE `user`=" + userId + ";")) {
+            try (ResultSet resultSet = statement.executeQuery("SELECT `id`, `currLvl`, `xp` FROM `levels` WHERE `id`=" + userId + ";")) {
                 // If we have an entry in the database, return it
-                if (resultSet.next()) return new LevelEntry(userId, resultSet.getInt("level"), resultSet.getInt("xp"));
+                if (resultSet.next()) return new LevelEntry(userId, resultSet.getInt("currLvl"), resultSet.getInt("xp"));
             }
 
         } catch (SQLException e) { logDatabaseError(OperationType.READING, e); }
         return new LevelEntry(0, 0, 0); //Return blank values (low rank)
     }
 
-    public static void saveLevelEntry(LevelEntry entry) {
+    public static void saveLevelEntry(long userId, LevelEntry entry) {
         try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("INSERT OR REPLACE INTO `levels` (`id`, `currLvl`, `xp`) VALUES (" + entry.getUser() + ", " + entry.getLevel() + ", " + entry.getXp() + ");");
+            statement.executeUpdate("INSERT OR REPLACE INTO `levels` (`id`, `currLvl`, `xp`) VALUES (" + userId + ", " + entry.getLevel() + ", " + entry.getXp() + ");");
         } catch (SQLException e) { logDatabaseError(OperationType.WRITING, e); }
     }
 
@@ -55,7 +55,7 @@ public class BotStorage {
         @Override
         public String toString() {
             //Keep first character uppercase, rest lowercase and replace _ with spaces
-            return name().charAt(0) + (name().toLowerCase().substring(1).replaceAll("_", " "));
+            return /*name().charAt(0) +*/ (name().toLowerCase().substring(1).replaceAll("_", " "));
         }
     }
 }

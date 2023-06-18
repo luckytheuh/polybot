@@ -14,6 +14,10 @@ public class LevelEntry {
         this.xp = xp;
     }
 
+    public long getUserId() {
+        return userId;
+    }
+
     public User getUser() {
         User user = PolyBot.getJDA().getUserById(userId);
 

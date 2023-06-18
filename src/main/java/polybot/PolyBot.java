@@ -1,12 +1,15 @@
 package polybot;
 
+import com.jagrosh.jdautilities.command.CommandClientBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.OnlineStatus;
 import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.requests.GatewayIntent;
+import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import polybot.commands.RankCommand;
 import polybot.levels.LevelListener;
 
 public class PolyBot {
@@ -23,11 +26,17 @@ public class PolyBot {
     private static JDA jda;
 
     public static void main(String[] args) throws InterruptedException {
+        CommandClientBuilder builder = new CommandClientBuilder()
+                .addCommands(new RankCommand())
+                .setActivity(null)
+                .setOwnerId(0L)
+                .setPrefix("!");
+
         jda = JDABuilder.create("token goes here", GatewayIntent.GUILD_MESSAGES, GatewayIntent.MESSAGE_CONTENT)
                 .setStatus(OnlineStatus.ONLINE)
                 .setActivity(Activity.listening("to your thoughts"))
                 .setEnableShutdownHook(true)
-                .addEventListeners(new LevelListener())
+                .addEventListeners(builder.build(), new LevelListener())
                 .build().awaitReady();
     }
 
