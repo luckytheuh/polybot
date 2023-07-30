@@ -9,16 +9,21 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import polybot.commands.RankCommand;
+import polybot.commands.ColorCommand;
+import polybot.commands.MergeXPCommand;
+import polybot.commands.Randowo;
+import polybot.commands.SettingCommand;
+import polybot.levels.RankCommand;
 import polybot.levels.LevelListener;
+import polybot.listeners.AutoReportListener;
+import polybot.listeners.FilterListener;
+import polybot.listeners.ReactionListener;
 
 public class PolyBot {
 
     //TODO:
-    // leveling system (implemented, untested)
-    // rank command (graphics2d, 64x64 image, progress bar, and stuff using the api)
-    // basic auto mod
-    // nyan commands
+    // leaderboard command
+    //
 
     //TODO: optional things to do:
     // music playback
@@ -27,16 +32,19 @@ public class PolyBot {
 
     public static void main(String[] args) throws InterruptedException {
         CommandClientBuilder builder = new CommandClientBuilder()
-                .addCommands(new RankCommand())
+                .addCommands(new SettingCommand(), new RankCommand(), new MergeXPCommand(), new ColorCommand(), new Randowo())
+                .useHelpBuilder(false)
                 .setActivity(null)
-                .setOwnerId(0L)
-                .setPrefix("!");
+                .setPrefix("!!")
+                .setOwnerId(778318296666996796L);
 
-        jda = JDABuilder.create("token goes here", GatewayIntent.GUILD_MESSAGES, GatewayIntent.MESSAGE_CONTENT)
+        jda = JDABuilder.create("INSERT TOKEN HERE", GatewayIntent.GUILD_MESSAGES, GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_PRESENCES, GatewayIntent.MESSAGE_CONTENT, GatewayIntent.GUILD_MESSAGE_REACTIONS)
+                .disableCache(CacheFlag.ACTIVITY, CacheFlag.VOICE_STATE, CacheFlag.EMOJI, CacheFlag.STICKER, CacheFlag.CLIENT_STATUS, CacheFlag.SCHEDULED_EVENTS)
+                .enableCache(CacheFlag.ONLINE_STATUS)
                 .setStatus(OnlineStatus.ONLINE)
-                .setActivity(Activity.listening("to your thoughts"))
+                .setActivity(Activity.listening(" the voices"))
                 .setEnableShutdownHook(true)
-                .addEventListeners(builder.build(), new LevelListener())
+                .addEventListeners(builder.build(), new LevelListener(), new AutoReportListener(), new FilterListener(), new ReactionListener())
                 .build().awaitReady();
     }
 

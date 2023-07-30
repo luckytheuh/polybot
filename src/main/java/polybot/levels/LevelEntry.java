@@ -5,12 +5,15 @@ import polybot.PolyBot;
 
 public class LevelEntry {
 
+    private final boolean error;
     private final long userId;
-    private int level, xp;
+    private int level, xp, rank;
 
-    public LevelEntry(long userId, int level, int xp) {
+    public LevelEntry(long userId, int level, int xp, int rank, boolean error) {
         this.userId = userId;
+        this.error = error;
         this.level = level;
+        this.rank = rank;
         this.xp = xp;
     }
 
@@ -18,20 +21,36 @@ public class LevelEntry {
         return userId;
     }
 
-    public User getUser() {
-        User user = PolyBot.getJDA().getUserById(userId);
+    public boolean isError() {
+        return error;
+    }
 
-        // Fetch from API if it failed
-        if (user == null) user = PolyBot.getJDA().retrieveUserById(userId).complete();
+    /*
+        public User getUser() {
+            User user = PolyBot.getJDA().getUserById(userId);
 
-        return user;
+            // Fetch from API if it failed
+            if (user == null) user = PolyBot.getJDA().retrieveUserById(userId).complete();
+
+            return user;
+        }
+    */
+
+    public boolean calculateLevel() {
+        boolean didGoUp = getLevelProgress() >= 1;
+
+        while (getLevelProgress() >= 1) {
+            level++;
+        }
+
+        return didGoUp;
     }
 
     public int getXpForNextLevel() {
         return getXpForLevel(level+1);
     }
 
-    private int getXpForLevel(int level) {
+    public int getXpForLevel(int level) {
         return Math.round(5f / 6 * level * (2 * level * level + 27 * level + 91));
     }
 
@@ -59,5 +78,13 @@ public class LevelEntry {
 
     public void setXp(int xp) {
         this.xp = xp;
+    }
+
+    public int getRank() {
+        return rank;
+    }
+
+    public void setRank(int rank) {
+        this.rank = rank;
     }
 }
