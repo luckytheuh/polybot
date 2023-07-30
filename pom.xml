@@ -6,7 +6,7 @@
 
     <groupId>polybot</groupId>
     <artifactId>pbot</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
 
     <properties>
         <mainClass>polybot.PolyBot</mainClass>
@@ -96,6 +96,11 @@
             <artifactId>sqlite-jdbc</artifactId>
             <version>3.40.1.0</version>
             <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>3.1.7</version>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>
