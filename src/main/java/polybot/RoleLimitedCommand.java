@@ -2,9 +2,6 @@ package polybot;
 
 import com.jagrosh.jdautilities.command.Command;
 import com.jagrosh.jdautilities.command.CommandEvent;
-import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.Role;
 import polybot.util.GuildUtil;
 
 public abstract class RoleLimitedCommand extends Command {

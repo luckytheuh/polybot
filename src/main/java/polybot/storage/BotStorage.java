@@ -9,9 +9,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.URL;
 import java.sql.*;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -20,6 +18,7 @@ public class BotStorage {
     private static final ExecutorService DB_WORKERS = Executors.newCachedThreadPool();
     private static BufferedImage CARD_BACKGROUND;
     private static final Map<Setting, String> SETTING_CACHE = Collections.synchronizedMap(new HashMap<>());
+    private static final Map<Long, UserSettingEntry[]> USER_SETTING_CACHE = Collections.synchronizedMap(new HashMap<>());
     private static final Connection connection;
 
     static {
@@ -27,8 +26,9 @@ public class BotStorage {
             Class.forName("org.sqlite.JDBC");
             connection = DriverManager.getConnection("jdbc:sqlite:polybot.db");
             Statement initDB = connection.createStatement();
-            initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `levels` (`id` INTEGER NOT NULL, `currLvl` INTEGER NOT NULL, `xp` INTEGER NOT NULL, PRIMARY KEY(`id`));");
+            initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `levels` (`id` INTEGER NOT NULL, `currLvl` INTEGER NOT NULL, `xp` INTEGER NOT NULL, `messages` INTEGER NOT NULL, PRIMARY KEY(`id`));");
             initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `settings` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`));");
+            initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `userSettings` (`id` INTEGER NOT NULL, `key` TEXT NOT NULL, `value` TEXT NOT NULL);");
             initDB.close();
         } catch (ClassNotFoundException | SQLException e) {
             throw new RuntimeException(e);
@@ -54,8 +54,14 @@ public class BotStorage {
         return getSetting(setting, "");
     }
 
-    public static long getSetting(Setting setting, long def) {
+    public static long getSettingAsLong(Setting setting, long def) {
         return BotUtil.getAsLong(getSetting(setting), def);
+    }
+
+    public static List<String> getSettingAsList(Setting setting) {
+        String value = getSetting(setting, "");
+        if (value.isBlank() || value.isEmpty()) return Collections.emptyList();
+        return new ArrayList<>(List.of(value.split(",")));
     }
 
     public static String getSetting(Setting setting, String def) {
@@ -102,6 +108,56 @@ public class BotStorage {
     }
 
 
+    public static UserSettingEntry getUserSetting(long userId, UserSetting setting) { //TODO: find a system to allow caching the user settings while also keeping the key value method
+        if (USER_SETTING_CACHE.containsKey(userId)) {
+            //return if the user setting in the cache is not null, otherwise fetch from db
+
+            UserSettingEntry e = USER_SETTING_CACHE.get(userId)[setting.ordinal()];
+            if (e != null) return e;
+        }
+
+        synchronized (connection) {
+            try (Statement statement = connection.createStatement()) {
+                try (ResultSet resultSet = statement.executeQuery("SELECT * FROM `userSettings` WHERE `id`=" + userId + " AND `key`='" + setting.key() + "';")) {
+                    if (resultSet.next()) {
+                        UserSettingEntry entry = new UserSettingEntry(setting, resultSet.getString("value"));
+                        USER_SETTING_CACHE.put(userId, new UserSettingEntry[UserSetting.values().length]);
+                        USER_SETTING_CACHE.get(userId)[setting.ordinal()] = entry;
+                        return entry;
+                    }
+                }
+            } catch (SQLException e) { logDatabaseError(OperationType.READING, e); }
+        }
+
+        return new UserSettingEntry(setting);
+    }
+
+    public static void setUserSetting(long userId, UserSettingEntry settingEntry) {
+        if (USER_SETTING_CACHE.get(userId) == null) {
+            USER_SETTING_CACHE.put(userId, new UserSettingEntry[UserSetting.values().length]);
+            USER_SETTING_CACHE.get(userId)[settingEntry.getUserSetting().ordinal()] = settingEntry;
+        }
+
+        DB_WORKERS.submit(() -> {
+            synchronized (connection) {
+                try (PreparedStatement statement = connection.prepareStatement("DELETE FROM `userSettings` WHERE `id`=? AND `key`=?;")) {
+                    statement.setLong(1, userId);
+                    statement.setString(2, settingEntry.getUserSetting().key());
+                    statement.executeUpdate();
+                } catch (SQLException e) { logDatabaseError(OperationType.WRITING, e); }
+
+                try (PreparedStatement statement = connection.prepareStatement("INSERT OR REPLACE INTO `userSettings` (`id`, `key`, `value`) VALUES (" + userId + ",?,?);")) {
+                    statement.setString(1, settingEntry.getUserSetting().key());
+                    statement.setString(2, settingEntry.getValue());
+                    statement.executeUpdate();
+                } catch (SQLException e) { logDatabaseError(OperationType.WRITING, e); }
+            }
+        });
+    }
+
+
+
+
 
 
 
@@ -119,17 +175,17 @@ public class BotStorage {
             logDatabaseError(OperationType.READING, e);
             return 0;
         }
-    }
+    }//INDECIDES for id?
 
     public static synchronized LevelEntry getLevelEntry(long userId) {
         try (Statement statement = connection.createStatement()) {
             try (ResultSet resultSet = statement.executeQuery("SELECT * FROM `levels` WHERE `id`=" + userId + ";")) {
                 // If we have an entry in the database, return it
-                if (resultSet.next()) return new LevelEntry(userId, resultSet.getInt("currLvl"), resultSet.getInt("xp"), 0, false);
+                if (resultSet.next()) return new LevelEntry(userId, resultSet.getInt("currLvl"), resultSet.getInt("xp"), 0, resultSet.getInt("messages"), false);
             }
         } catch (SQLException e) {
             logDatabaseError(OperationType.READING, e);
-            return new LevelEntry(0, 0, 0, 0, true);
+            return new LevelEntry(0, 0, 0, 0, 0, true);
         }
 
         return null; // Returning null means there was no entry stored for them
@@ -138,8 +194,12 @@ public class BotStorage {
     public static void saveLevelEntry(long userId, LevelEntry entry) {
         DB_WORKERS.submit(() -> {
             synchronized (connection) {
-                try (Statement statement = connection.createStatement()) {
-                    statement.executeUpdate("INSERT OR REPLACE INTO `levels` (`id`, `currLvl`, `xp`) VALUES (" + userId + ", " + entry.getLevel() + ", " + entry.getXp() + ");");
+                try (PreparedStatement statement = connection.prepareStatement("INSERT OR REPLACE INTO `levels` (`id`, `currLvl`, `xp`, `messages`) VALUES (?,?,?,?);")) {
+                    statement.setLong(1, userId);
+                    statement.setInt(2, entry.getLevel());
+                    statement.setInt(3, entry.getXp());
+                    statement.setInt(4, entry.getMessages());
+                    statement.executeUpdate();
                 } catch (SQLException e) { logDatabaseError(OperationType.WRITING, e); }
             }
         });

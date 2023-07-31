@@ -10,6 +10,7 @@ import net.dv8tion.jda.api.entities.emoji.UnicodeEmoji;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.interactions.components.ActionRow;
 import net.dv8tion.jda.api.interactions.components.buttons.Button;
 import org.jetbrains.annotations.NotNull;
 import polybot.storage.BotStorage;
@@ -29,8 +30,8 @@ public class AutoReportListener extends ListenerAdapter {
     private static final Cache<Long, Message> REPORTS = Caffeine.newBuilder().expireAfterWrite((int) (60*3.5), TimeUnit.MINUTES).build(); // 3:30 hours
     private static final String DESCRIPTION = "Message %s in %s\n**Content:** %s";
     private static final UnicodeEmoji WARNING = Emoji.fromUnicode("⚠️");
-    //private static final int WARNING_CAP = 5;
-
+//TODO: keep track of message edits? add a new field per edit?
+    //TODO: mark as handled button so itll just disable buttons
 
     @Override
     public void onMessageReactionAdd(@NotNull MessageReactionAddEvent event) {
@@ -40,7 +41,7 @@ public class AutoReportListener extends ListenerAdapter {
         event.retrieveMessage().queue(message -> {
             Message botMsgReport = REPORTS.getIfPresent(message.getIdLong());
             final int totalWarn = message.getReaction(WARNING).getCount();
-            if (totalWarn < BotStorage.getSetting(Setting.AUTO_REPORT_COUNT, 0)) return;
+            if (totalWarn < BotStorage.getSettingAsLong(Setting.AUTO_REPORT_COUNT, 0)) return;
 
             TextChannel channel = GuildUtil.getChannelFromSetting(event.getGuild(), Setting.BOT_REPORT_CHANNEL);
             if (channel != null) {
@@ -53,7 +54,7 @@ public class AutoReportListener extends ListenerAdapter {
 
                     EmbedBuilder builder = new EmbedBuilder()
                             .setAuthor(UserUtil.getUserAsName(message.getAuthor()) + " (" + message.getAuthor().getIdLong() + ")", null, message.getAuthor().getAvatarUrl())
-                            .setDescription(String.format(DESCRIPTION, message.getId(), message.getChannel().getAsMention(), message.getContentRaw()))
+                            .setDescription(String.format(DESCRIPTION, message.getId(), message.getJumpUrl(), message.getContentRaw()))
                             .setTimestamp(Instant.now())
                             .setColor(BotUtil.IDLE);
 
@@ -61,8 +62,10 @@ public class AutoReportListener extends ListenerAdapter {
                         builder.addField("Attachment " + (i+1), "[View](" + message.getAttachments().get(i).getUrl() + ")", true);
                     }
 
-                    channel.sendMessage(totalWarn + " :warning: reactions").addEmbeds(builder.build()).setActionRow(Button.danger(message.getId(), "Validate Report")).queue(botMessage -> {
+                    channel.sendMessage(totalWarn + " :warning: reactions").addEmbeds(builder.build()).queue(botMessage -> {
                         REPORTS.put(message.getIdLong(), botMessage);
+
+                        botMessage.editMessageComponents(ActionRow.of(Button.danger(message.getId(), "Validate Report"), Button.success("mh-" + botMessage.getId(), "Mark as handled"))).queue();
 
                         // If the message wasn't checked in the 3-hour period, it will be marked as expired
                         botMessage.editMessage("This report has expired.")
@@ -80,17 +83,31 @@ public class AutoReportListener extends ListenerAdapter {
         if (!event.isFromGuild()) return;
         if (event.isAcknowledged()) return;
 
+        if (event.getComponentId().startsWith("mh-")) {
+            event.editComponents(Collections.emptyList()).setContent(event.getMessage().getContentRaw() + ", marked as handled by " + UserUtil.getUserAsName(event.getUser())).queue();
+
+            // Remove from list if it exists
+            for (Map.Entry<Long, Message> entry : REPORTS.asMap().entrySet()) {
+                if (entry.getValue().getIdLong() == event.getMessageIdLong()) {
+                    REPORTS.invalidate(entry.getKey());
+                    return;
+                }
+            }
+
+            return;
+        }
+
         // Get all reports, and search for the one this button wants
-        for (Map.Entry<Long, Message> message : REPORTS.asMap().entrySet()) {
-            if (String.valueOf(message.getKey()).equals(event.getComponentId())) {
-                // Disable the button
+        for (Map.Entry<Long, Message> entry : REPORTS.asMap().entrySet()) {
+            if (String.valueOf(entry.getKey()).equals(event.getComponentId())) {
+                // Disable buttons
                 event.editComponents(Collections.emptyList()).setContent(event.getMessage().getContentRaw() + ", marked valid by " + UserUtil.getUserAsName(event.getUser())).queue();
 
                 // Resend into PR channel
                 TextChannel channel = GuildUtil.getChannelFromSetting(Objects.requireNonNull(event.getGuild()), Setting.PARK_RANGER_CHANNEL);
                 if (channel != null) {
-                    channel.sendMessage(event.getUser().getAsMention() + " marked this as a valid report").addEmbeds(message.getValue().getEmbeds()).queue();
-                    REPORTS.invalidate(message.getKey());
+                    channel.sendMessage(event.getUser().getAsMention() + " marked this as a valid report").addEmbeds(entry.getValue().getEmbeds()).queue();
+                    REPORTS.invalidate(entry.getKey());
                 }
                 return;
             }

@@ -5,24 +5,23 @@ import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.events.message.MessageUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import org.jetbrains.annotations.NotNull;
-import polybot.PolyBot;
 import polybot.storage.BotStorage;
 import polybot.storage.Setting;
-import polybot.util.UserUtil;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class FilterListener extends ListenerAdapter {
 
-    private static final Pattern HTTP_PATTERN = Pattern.compile("https?://[^\\s<]+[^<.,:;\"')\\]\\s]", Pattern.CASE_INSENSITIVE);
+    private static final List<String> ALLOWED_URLS = List.of("discord.com", "discord.gg", "media.discordapp.net", "cdn.discordapp.com", "tenor.com", "youtube.com", "youtu.be", "twitter.com", "t.co", "en.wikipedia.com");
+    private static final Pattern HTTP_PATTERN = Pattern.compile("(http|https)://([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])", Pattern.CASE_INSENSITIVE);
+    private static final Pattern EMOJI_PATTERN = Pattern.compile(":([^:]+):");
 
     @Override
     public void onMessageReceived(@NotNull MessageReceivedEvent event) {
-        //TODO: website filter with whitelist
-        // emoji filter
+        //TODO: website filter with wildcard whitelist
         // spam filter
         // one of the spam filters is sending messages really fast (5 msg in 5 sec)
 
@@ -36,26 +35,40 @@ public class FilterListener extends ListenerAdapter {
     }
 
     private void handle(Message message) {
+        if (message.getAuthor().isBot()) return;
+
         final String contentRaw = message.getContentRaw();
-        //TODO: implement all filters in this message so we dont need to copy and paste the code twice
-        // on initial send, and on further edits
 
-        //split on space and check number of occurrences in message
+        List<String> urls = BotStorage.getSettingAsList(Setting.LINK_WHITELIST);
+        urls.addAll(ALLOWED_URLS);
 
-        Matcher urlMatcher = HTTP_PATTERN.matcher(contentRaw);
+        Matcher matcher = HTTP_PATTERN.matcher(contentRaw);
+        while (matcher.find()) {
+            String str = matcher.group().toLowerCase().replaceAll("(http|https)://", "");
+            if (str.contains("/")) str = str.substring(0, str.indexOf("/"));
 
-        if (urlMatcher.matches()) {
-            PolyBot.getLogger().warn("URL MATCH for " + UserUtil.getUserAsName(message.getAuthor()));
+            if (urls.contains(str)) continue;
 
-            List<String> urls = Arrays.stream(BotStorage.getSetting(Setting.LINK_WHITELIST).split(",")).toList();
+            System.out.println(str + " | " + message.getChannel().getName());
 
-            for (int i = 0; i < urlMatcher.groupCount(); i++) {
-                if (!urls.contains(urlMatcher.group(i))) {
-                    PolyBot.getLogger().warn("URL NOT ALLOWED '" + urlMatcher.group(i) + "' for " + UserUtil.getUserAsName(message.getAuthor()));
-                    return;
-                }
+            //message.reply("URL NOT ALLOWED!").mentionRepliedUser(false).queue();
+            return;
+        } //for wildcard, work our way backwards or something maybe copy the wildcard from httpsrvsocket
+
+        List<Word> words = new ArrayList<>();
+        matcher = EMOJI_PATTERN.matcher(contentRaw);
+        while (matcher.find()) {
+            checkWord(words, matcher.group());
+        }
+
+        for (Word word : words) {
+            if (word.appearances > 3) {
+                System.out.println(word.word + " | " + message.getChannel().getName());
+                //message.reply("TOO MUCH EMOJI, NOT ALLOWED!").mentionRepliedUser(false).queue();
+                return;
             }
         }
+        words.clear();
 
 /*
 //using the String#contains method, we could use that to gain additional common words

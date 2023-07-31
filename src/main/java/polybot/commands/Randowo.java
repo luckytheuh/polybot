@@ -12,7 +12,7 @@ public class Randowo extends RoleLimitedCommand {
         super(804551691847729172L);
         this.name = "randowo";
         this.cooldown = 5;
-        this.cooldownScope = CooldownScope.USER;
+        this.cooldownScope = CooldownScope.GUILD;
     }
 
     @Override

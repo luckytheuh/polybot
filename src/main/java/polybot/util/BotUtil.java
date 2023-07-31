@@ -13,7 +13,6 @@ import net.dv8tion.jda.api.utils.FileUpload;
 import javax.imageio.ImageIO;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -29,7 +28,6 @@ public class BotUtil {
 
     public static final Color ONLINE = new Color(35, 165, 90), IDLE = new Color(250, 165, 27), DND = new Color(240, 72, 72), OFFLINE = new Color(128, 132, 142);
     public static final int CARD_BORDER = 25;
-    public static final Ellipse2D.Float LEVEL_AVATAR_CIRCLE = new Ellipse2D.Float(CARD_BORDER + 15, CARD_BORDER + 20, 128, 128);
     public static final BufferedImage NULL_IMAGE_LOL = new BufferedImage(64, 64, BufferedImage.TYPE_INT_RGB);
 
     static {
@@ -44,8 +42,6 @@ public class BotUtil {
         g.fillRect(0, 32, 32, 32);
         g.dispose();
     }
-
-
 
     public static JsonObject fetchWebsiteJson(String url) {
         try {

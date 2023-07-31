@@ -12,7 +12,11 @@ import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.OptionData;
 import polybot.PolyBot;
 import polybot.storage.BotStorage;
+import polybot.storage.Setting;
+import polybot.storage.UserSetting;
+import polybot.storage.UserSettingEntry;
 import polybot.util.BotUtil;
+import polybot.util.ColorUtil;
 import polybot.util.UserUtil;
 
 import java.awt.*;
@@ -22,7 +26,6 @@ import java.awt.image.BufferedImage;
 import java.util.Collections;
 
 public class RankCommand extends SlashCommand {
-    private static final Color PROGRESS_COLOR = new Color(98, 211, 245);
     private static final Font FONT_BIG = new Font("Tahoma", Font.PLAIN, 28), FONT_SMALL = FONT_BIG.deriveFont(20f);
     private static final int LEVEL_CARD_BORDER = 25;
     private static final Ellipse2D.Float AVATAR_CIRCLE = new Ellipse2D.Float(LEVEL_CARD_BORDER + 15, LEVEL_CARD_BORDER + 20, 128, 128);
@@ -31,6 +34,7 @@ public class RankCommand extends SlashCommand {
     public RankCommand() {
         this.name = "rank";
         this.guildOnly = false;
+        this.aliases = new String[]{"level"};
         this.options = Collections.singletonList(new OptionData(OptionType.USER, "user", "User to rank check", false));
     }
 
@@ -68,7 +72,7 @@ event.reply("🐗").setEphemeral(true).queue();
 
     private void handleCommand(User user, OnlineStatus status, GuildMessageChannel channel) {
         if (user.isBot()) {
-            if (user.getIdLong() == PolyBot.getJDA().getSelfUser().getIdLong()) channel.sendMessage("That's me, I'm **un-rankable!**").queue(); //TODO: allow customizing messages
+            if (user.getIdLong() == PolyBot.getJDA().getSelfUser().getIdLong()) channel.sendMessage("That's me, I'm **un-rankable!** 🤓").queue(); //TODO: allow customizing messages
             else channel.sendMessage("🚫 " + user.getAsMention() + " is a **bot**! Bots aren't invited to the **super fancy `!rank` party**.").queue();
 
             return;
@@ -99,23 +103,32 @@ event.reply("🐗").setEphemeral(true).queue();
                 FontMetrics bigFontMetrics = g2d.getFontMetrics(FONT_BIG);
                 FontMetrics smallFontMetrics = g2d.getFontMetrics(FONT_SMALL);
 
-                // Background image
-                AffineTransform transform = g2d.getTransform();
+                UserSettingEntry settingEntry = BotStorage.getUserSetting(user.getIdLong(), UserSetting.LEVEL_CARD_BACKGROUND);
 
-                float scaleW = (float) levelCard.getWidth() / BotStorage.getCardBackground().getWidth();
-                float scaleH = (float) levelCard.getHeight() / BotStorage.getCardBackground().getHeight();
-                float scale = Math.max(scaleW, scaleH);
+                System.out.println(settingEntry.getValue());
 
-                g2d.scale(scale, scale);
+                if (settingEntry.getValue().equalsIgnoreCase("true")) {
+                    // Background image
+                    AffineTransform transform = g2d.getTransform();
 
-                g2d.drawImage(BotStorage.getCardBackground(),
-                        (scale == scaleW ? 0 : levelCard.getWidth()/2 - BotStorage.getCardBackground().getWidth()/2),
-                        (scale == scaleH ? 0 : levelCard.getHeight()/2 - BotStorage.getCardBackground().getHeight()/2),
-                        null);
-                g2d.setTransform(transform);
+                    float scaleW = (float) levelCard.getWidth() / BotStorage.getCardBackground().getWidth();
+                    float scaleH = (float) levelCard.getHeight() / BotStorage.getCardBackground().getHeight();
+                    float scale = Math.max(scaleW, scaleH);
+
+                    g2d.scale(scale, scale);
+
+                    g2d.drawImage(BotStorage.getCardBackground(),
+                            (scale == scaleW ? 0 : levelCard.getWidth()/2 - BotStorage.getCardBackground().getWidth()/2),
+                            (scale == scaleH ? 0 : levelCard.getHeight()/2 - BotStorage.getCardBackground().getHeight()/2),
+                            null);
+                    g2d.setTransform(transform);
+                } else {
+                    g2d.setColor(Color.black);
+                    g2d.fillRect(0, 0, levelCard.getWidth(), levelCard.getHeight());
+                }
 
                 // Background graphic
-                g2d.setColor(new Color(0, 0, 0, 192));
+                g2d.setColor(new Color(0f, 0f, 0f, BotStorage.getSettingAsLong(Setting.LEVEL_CARD_TRANSPARENCY, 0) / 100f));
                 g2d.fillRoundRect(LEVEL_CARD_BORDER, LEVEL_CARD_BORDER, levelCard.getWidth()- LEVEL_CARD_BORDER*2, levelCard.getHeight()-LEVEL_CARD_BORDER*2, 50, 50);
 
                 // Profile picture
@@ -137,7 +150,6 @@ event.reply("🐗").setEphemeral(true).queue();
                 }
 
                 // Status indicator
-                g2d.setColor(BotUtil.IDLE);
                 g2d.fillOval((int) AVATAR_CIRCLE.x + 96, (int) AVATAR_CIRCLE.y + 96, 32, 32);
 
                 // Status indicator outline
@@ -160,8 +172,11 @@ event.reply("🐗").setEphemeral(true).queue();
                 g2d.setStroke(new BasicStroke(2));
                 g2d.drawLine(128 + LEVEL_CARD_BORDER*2, LEVEL_CARD_BORDER*3, levelCard.getWidth()- LEVEL_CARD_BORDER*2, LEVEL_CARD_BORDER*3);
 
+                settingEntry = BotStorage.getUserSetting(user.getIdLong(), UserSetting.LEVEL_CARD_THEME);
+                Color settingColor = ColorUtil.getColorFromString(settingEntry.getValue());
+
                 // User's current level
-                g2d.setColor(PROGRESS_COLOR);
+                g2d.setColor(settingColor);
                 String lvlStr = String.valueOf(entry.getLevel());
                 g2d.drawString(lvlStr, levelCard.getWidth() - bigFontMetrics.stringWidth(lvlStr) - LEVEL_CARD_BORDER*2, LEVEL_CARD_BORDER*2 + 15);
 
@@ -185,7 +200,7 @@ event.reply("🐗").setEphemeral(true).queue();
 
                 // Draw progress bar if they have progress
                 if (entry.getLevelProgress() != 0) {
-                    g2d.setColor(PROGRESS_COLOR);
+                    g2d.setColor(settingColor);
                     g2d.drawLine(LEVEL_CARD_BORDER*2, levelCard.getHeight()- LEVEL_CARD_BORDER*2, LEVEL_CARD_BORDER*2 + (int) (entry.getLevelProgress() * (levelCard.getWidth() - LEVEL_CARD_BORDER*4)), levelCard.getHeight()- LEVEL_CARD_BORDER*2);
                 }
 

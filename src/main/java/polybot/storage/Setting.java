@@ -1,9 +1,11 @@
 package polybot.storage;
 
 public enum Setting {
+    LEVEL_UP_MESSAGE(false, true, 2),
     WELCOME_MESSAGE(false, true, 1),
-    LVL_UP_MESSAGE(false, true, 2),
     LEAVE_MESSAGE(false, true, 1),
+    WELCOME_CARD_TRANSPARENCY(false),
+    LEVEL_CARD_TRANSPARENCY(false),
     WELCOME_LEAVE_CHANNEL(false),
     PARK_RANGER_CHANNEL(false),
     BOT_REPORT_CHANNEL(false),
@@ -68,7 +70,8 @@ public enum Setting {
                     setting.key().equalsIgnoreCase(str) ||
                     setting.name().equalsIgnoreCase(str) ||
                     setting.friendlyName().replace("message", "msg").equalsIgnoreCase(str) ||
-                    setting.friendlyName().replace("image", "img").equalsIgnoreCase(str)) {
+                    setting.friendlyName().replace("image", "img").equalsIgnoreCase(str) ||
+                    setting.friendlyName().replace("level", "lvl").equalsIgnoreCase(str)) {
                 return setting;
             }
         }

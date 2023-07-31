@@ -9,10 +9,7 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import polybot.commands.ColorCommand;
-import polybot.commands.MergeXPCommand;
-import polybot.commands.Randowo;
-import polybot.commands.SettingCommand;
+import polybot.commands.*;
 import polybot.levels.RankCommand;
 import polybot.levels.LevelListener;
 import polybot.listeners.AutoReportListener;
@@ -23,7 +20,7 @@ public class PolyBot {
 
     //TODO:
     // leaderboard command
-    //
+    // per user settings
 
     //TODO: optional things to do:
     // music playback
@@ -32,7 +29,7 @@ public class PolyBot {
 
     public static void main(String[] args) throws InterruptedException {
         CommandClientBuilder builder = new CommandClientBuilder()
-                .addCommands(new SettingCommand(), new RankCommand(), new MergeXPCommand(), new ColorCommand(), new Randowo())
+                .addCommands(new SettingCommand(), new RankCommand(), new MergeXPCommand(), new ColorCommand(), new Randowo(), new UserSettingCommand(), new EarliesCommand())
                 .useHelpBuilder(false)
                 .setActivity(null)
                 .setPrefix("!!")

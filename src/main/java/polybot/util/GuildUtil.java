@@ -10,7 +10,7 @@ import polybot.storage.Setting;
 public class GuildUtil {
 
     public static TextChannel getChannelFromSetting(Guild guild, Setting setting) {
-        return guild.getTextChannelById(BotUtil.getAsLong(BotStorage.getSetting(setting, "0")));
+        return guild.getTextChannelById(BotStorage.getSettingAsLong(setting, 0));
     }
 
     public static boolean memberHasRole(Member member, long roleId) {

@@ -1,15 +1,13 @@
 package polybot.levels;
 
-import net.dv8tion.jda.api.entities.User;
-import polybot.PolyBot;
-
 public class LevelEntry {
 
     private final boolean error;
     private final long userId;
-    private int level, xp, rank;
+    private int rank, level, xp, messages;
 
-    public LevelEntry(long userId, int level, int xp, int rank, boolean error) {
+    public LevelEntry(long userId, int level, int xp, int rank, int messages, boolean error) {
+        this.messages = messages;
         this.userId = userId;
         this.error = error;
         this.level = level;
@@ -86,5 +84,13 @@ public class LevelEntry {
 
     public void setRank(int rank) {
         this.rank = rank;
+    }
+
+    public int getMessages() {
+        return messages;
+    }
+
+    public void setMessages(int messages) {
+        this.messages = messages;
     }
 }

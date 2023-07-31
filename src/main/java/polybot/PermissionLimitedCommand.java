@@ -16,7 +16,7 @@ public abstract class PermissionLimitedCommand extends Command {
     @Override
     protected final void execute(CommandEvent event) {
         if (!event.getChannelType().isGuild()) return; // If this was not from a guild
-        if (!event.getMember().hasPermission(permission)) return; // If they don't have the required role
+        if (!event.isOwner()) if (!event.getMember().hasPermission(permission)) return; // If they don't have the required role
 
         executeCommand(event);
     }

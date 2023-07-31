@@ -51,12 +51,14 @@ public class LevelListener extends ListenerAdapter {
     public void onMessageReceived(@NotNull MessageReceivedEvent event) {
         // if this is dm or user is a bot, don't do anythin
         if (!event.isFromGuild() || event.getAuthor().isBot()) return;
+        if (event.getGuild().getIdLong() != 804491292405923841L) return;
 
-        //
         if (BotStorage.getSetting(Setting.NO_XP_CHANNELS).contains(event.getChannel().getId())) return;
 
         // Check if xp muted
         if (GuildUtil.memberHasRole(event.getMember(), BotUtil.getAsLong(BotStorage.getSetting(Setting.XP_MUTE_ROLE)))) return;
+
+        if (event.getMessage().getContentRaw().startsWith("!!")) return;
 
         // check if it's not time to let you gain xp again
         Long time = messageCache.getIfPresent(event.getAuthor().getIdLong()) ;
@@ -68,11 +70,16 @@ public class LevelListener extends ListenerAdapter {
         int gainedXp = 15 + ThreadLocalRandom.current().nextInt(11);
 
         LevelEntry entry = BotStorage.getLevelEntry(event.getAuthor().getIdLong());
-        if (entry == null) entry = new LevelEntry(0L, 0, 0, BotStorage.getTotalRankedUsers(), false);
+        if (entry == null) entry = new LevelEntry(0L, 0, 0, BotStorage.getTotalRankedUsers(), 0, false);
 
         entry.setXp(entry.getXp() + gainedXp);
+        entry.setMessages(entry.getMessages() + 1);
         if (entry.calculateLevel()) {
-            PolyBot.getLogger().info(String.format(BotStorage.getSetting(Setting.LVL_UP_MESSAGE), event.getAuthor().getAsMention(), Integer.toUnsignedString(entry.getLevel())));
+            PolyBot.getLogger().info(String.format(BotStorage.getSetting(Setting.LEVEL_UP_MESSAGE), event.getAuthor().getAsMention(), Integer.toUnsignedString(entry.getLevel())));
+
+            if (entry.getLevel() == 30) {
+                event.getGuild().getTextChannelById(834437126203768852L).sendMessage("Welcome " + event.getAuthor().getAsMention() + " to Level 30 General.").queue();
+            }
 
             /*
             TextChannel channel = GuildUtil.getChannelFromSetting(event.getGuild(), Setting.LEVEL_UP_CHANNEL);
@@ -87,7 +94,9 @@ public class LevelListener extends ListenerAdapter {
     @Override
     public void onGuildMemberJoin(@NotNull GuildMemberJoinEvent event) {
         //CompletableFuture.runAsync(() -> handleLevelRewards(event.getMember()));
-/* TODO uncomment
+
+        if (true) return;
+
         CompletableFuture.runAsync(() -> {
             TextChannel channel = GuildUtil.getChannelFromSetting(event.getGuild(), Setting.WELCOME_LEAVE_CHANNEL);
             if (channel != null) {
@@ -97,32 +106,28 @@ public class LevelListener extends ListenerAdapter {
                     if (action != null) {
                         // Add the join message from settings if exists
                         String s = BotStorage.getSetting(Setting.WELCOME_MESSAGE);
-                        if (!s.isEmpty() && !s.isBlank()) action.addContent(String.format(s, UserUtil.getUserAsName(event.getUser())));
+                        if (!s.isEmpty() && !s.isBlank()) action.addContent(String.format(s, event.getUser().getAsMention()));
 
                         action.queue();
                     }
                 });
             }
 
-*/
-
             System.out.println(UserUtil.getUserAsName(event.getMember().getUser()) + " has joined");
-        //});
+        });
     }
 
     @Override
     public void onGuildMemberRemove(@NotNull GuildMemberRemoveEvent event) {
-        System.out.println(UserUtil.getUserAsName(event.getUser()) + " has left");
+        if (true) return;
 
-        /* TODO uncomment
-        TextChannel channel = event.getGuild().getTextChannelById(BotUtil.getAsLong(BotStorage.getSetting(Setting.WELCOME_LEAVE_CHANNEL, "0")));
+        TextChannel channel = event.getGuild().getTextChannelById(BotStorage.getSettingAsLong(Setting.WELCOME_LEAVE_CHANNEL, 0));
 
         if (channel != null) {
             String leaveMsg = BotStorage.getSetting(Setting.LEAVE_MESSAGE);
 
             if (!leaveMsg.isBlank() && !leaveMsg.isEmpty()) channel.sendMessage(String.format(leaveMsg, UserUtil.getUserAsName(event.getUser()))).queue();
         }
-        */
     }
 
     public void handleLevelRewards(Member member) {
@@ -169,7 +174,7 @@ public class LevelListener extends ListenerAdapter {
 
 
         // rect
-        g2d.setColor(new Color(0, 0, 0, 192));
+        g2d.setColor(new Color(0f, 0f, 0f, BotStorage.getSettingAsLong(Setting.LEVEL_CARD_TRANSPARENCY, 0) / 100f));
         g2d.fillRoundRect(BotUtil.CARD_BORDER, BotUtil.CARD_BORDER, welcomeCard.getWidth() - BotUtil.CARD_BORDER*2, welcomeCard.getHeight() - BotUtil.CARD_BORDER*2, 25, 25);
 
         g2d.setFont(ROBOTO);
