@@ -1,37 +1,40 @@
 package polybot.util;
 
-import com.google.gson.JsonObject;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.Member;
+import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.Role;
+import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.middleman.MessageChannel;
-import net.dv8tion.jda.api.requests.restaction.AuditableRestAction;
 import net.dv8tion.jda.api.requests.restaction.MessageCreateAction;
 import net.dv8tion.jda.api.utils.FileUpload;
+import polybot.Constants;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
+import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
-import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class BotUtil {
 
-    public static final Color ONLINE = new Color(35, 165, 90), IDLE = new Color(250, 165, 27), DND = new Color(240, 72, 72), OFFLINE = new Color(128, 132, 142);
-    public static final int CARD_BORDER = 25;
-    public static final BufferedImage NULL_IMAGE_LOL = new BufferedImage(64, 64, BufferedImage.TYPE_INT_RGB);
+    private static final Pattern HTTP_PATTERN = Pattern.compile("([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])", Pattern.CASE_INSENSITIVE);
+    public static final BufferedImage NULL_IMAGE = new BufferedImage(64, 64, BufferedImage.TYPE_INT_RGB);
+
+    public static final BufferedImage DEFAULT_AVATAR;
+    private static final Graphics2D g;
 
     static {
-        Graphics2D g = NULL_IMAGE_LOL.createGraphics();
+        g = NULL_IMAGE.createGraphics();
 
         g.setColor(Color.magenta);
         g.fillRect(0, 0, 32, 32);
@@ -40,13 +43,23 @@ public class BotUtil {
         g.setColor(Color.black);
         g.fillRect(32, 0, 32, 32);
         g.fillRect(0, 32, 32, 32);
-        g.dispose();
+
+        BufferedImage da = null;
+        try {
+            da = ImageIO.read(new URL(String.format(User.DEFAULT_AVATAR_URL, 0)));
+        } catch (IOException ignored) {}
+
+        DEFAULT_AVATAR = da == null ? NULL_IMAGE : da;
     }
 
-    public static JsonObject fetchWebsiteJson(String url) {
+    public static FontMetrics getFontMetrics(Font font) {
+        return g.getFontMetrics(font);
+    }
+
+    public static JsonElement fetchWebsiteJson(String url) {
         try {
             URLConnection connection = new URL(url).openConnection();
-            connection.addRequestProperty("User-Agent", "NPC Bot v0.0.0");
+            connection.addRequestProperty("User-Agent", "PolyBot v" + Constants.VERSION);
             connection.connect();
 
             String line = "";
@@ -58,7 +71,7 @@ public class BotUtil {
                 }
             }
 
-            return JsonParser.parseString(line).getAsJsonObject();
+            return JsonParser.parseString(line);
         } catch (IOException ignored) {}
 
         return null;
@@ -72,10 +85,7 @@ public class BotUtil {
         try {
             ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
             ImageIO.write(image, "png", byteStream);
-
-            MessageCreateAction action = channel.sendFiles(FileUpload.fromData(byteStream.toByteArray(), filename));
-
-            byteStream.close();
+            MessageCreateAction action = channel.sendFiles(FileUpload.fromStreamSupplier(filename, () -> new ByteArrayInputStream(byteStream.toByteArray())));
             if (returnAction) return action;
             else {
                 action.queue();
@@ -86,11 +96,16 @@ public class BotUtil {
         return null;
     }
 
-    public static AuditableRestAction<Void> addRoleToMember(Member member, long roleId) {
-        Role role = getRoleFromGuild(member.getGuild(), roleId);
-        if (role == null) return null;
+    public static byte[] getBytesFromImage(BufferedImage image) {
+        if (image != null) {
+            try {
+                ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+                ImageIO.write(image, "png", byteStream);
+                return byteStream.toByteArray();
+            } catch (IOException ignored) {}
+        }
 
-        return member.getGuild().addRoleToMember(member, role);
+        return new byte[0];
     }
 
     public static Role getRoleFromGuild(Guild guild, long roleId) {
@@ -109,14 +124,27 @@ public class BotUtil {
 
         if (str == null || str.isEmpty() || str.isBlank()) return integerLongMap;
 
-        for (String reward : str.split(",")) {
+        for (String reward : str.split("\\|")) {
             try {
-                String[] rewardValues = reward.split("\\|");
+                String[] rewardValues = reward.split(",");
                 integerLongMap.put(Integer.parseInt(rewardValues[0]), Long.parseLong(rewardValues[1]));
             } catch (NumberFormatException ignored) {}
         }
 
         return integerLongMap;
+    }
+
+    public static boolean settingNameMatch(String strToCheck, String... alts) {
+        if (alts == null) return false;
+
+        for (String alt : alts) {
+            if (alt.equalsIgnoreCase(strToCheck)) return true;
+            alt = replace(alt.toLowerCase());
+
+            if (alt.equalsIgnoreCase(replace(strToCheck))) return true;
+        }
+
+        return false;
     }
 
     public static long getAsLong(String value) {
@@ -131,7 +159,35 @@ public class BotUtil {
     }
 
     public static boolean isValidId(long id) {
-        return id >= 0;
+        return id > 0;
+    }
+
+    public static String sanitise(String input) {
+        input = HTTP_PATTERN.matcher(input).replaceAll("<redacted>");
+        return input;
+    }
+
+    public static boolean hasIllegalKeywords(Message message) {
+        String contentRaw = message.getContentRaw();
+
+        return message.getMentions().mentionsEveryone() || hasIllegalKeywords(contentRaw);
+    }
+
+    public static boolean hasIllegalKeywords(String message) {
+        return message.contains("@everyone") ||
+                message.contains("@here") ||
+                HTTP_PATTERN.matcher(message).find();
+    }
+
+    private static String replace(String str) {
+        return str.replace("image", "img")
+                .replace("level", "lvl")
+                .replace("message", "msg")
+                .replace("background", "bg")
+                .replace("alternative", "alt")
+                .replace("leaderboard", "lb")
+                .replace("calculator", "calc")
+                .replaceAll("[-_]", " ");
     }
 
 }

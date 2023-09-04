@@ -3,79 +3,72 @@ package polybot.listeners;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.entities.MessageReaction;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
-import net.dv8tion.jda.api.entities.emoji.UnicodeEmoji;
+import net.dv8tion.jda.api.entities.sticker.StickerItem;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
+import net.dv8tion.jda.api.events.message.MessageDeleteEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.MessageUpdateEvent;
 import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
+import net.dv8tion.jda.api.exceptions.ErrorHandler;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
-import net.dv8tion.jda.api.interactions.components.ActionRow;
 import net.dv8tion.jda.api.interactions.components.buttons.Button;
+import net.dv8tion.jda.api.requests.ErrorResponse;
+import net.dv8tion.jda.api.utils.TimeUtil;
 import org.jetbrains.annotations.NotNull;
+import polybot.Constants;
 import polybot.storage.BotStorage;
 import polybot.storage.Setting;
-import polybot.util.BotUtil;
+import polybot.util.ColorUtil;
 import polybot.util.GuildUtil;
 import polybot.util.UserUtil;
+import polybot.util.WordUtil;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Collections;
-import java.util.Map;
-import java.util.Objects;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class AutoReportListener extends ListenerAdapter {
 
-    private static final Cache<Long, Message> REPORTS = Caffeine.newBuilder().expireAfterWrite((int) (60*3.5), TimeUnit.MINUTES).build(); // 3:30 hours
-    private static final String DESCRIPTION = "Message %s in %s\n**Content:** %s";
-    private static final UnicodeEmoji WARNING = Emoji.fromUnicode("⚠️");
-//TODO: keep track of message edits? add a new field per edit?
-    //TODO: mark as handled button so itll just disable buttons
+    public static final String DESCRIPTION = "Message %s in %s\n**Content:** %s";
+    public static final String RESPONSE = "Marked %s by %s with %s";
+
+    private final Cache<Long, Object> DO_NOT_REPORT = Caffeine.newBuilder().expireAfterWrite(1, TimeUnit.DAYS).build();
 
     @Override
     public void onMessageReactionAdd(@NotNull MessageReactionAddEvent event) {
-        if (!event.isFromGuild()) return;
-        if (event.getEmoji().getType() != Emoji.Type.UNICODE || !event.getEmoji().getName().equals(WARNING.getName())) return;
+        if (DO_NOT_REPORT.getIfPresent(event.getMessageIdLong()) != null) return; // Check early on to try and prevent multiple reports
+
+        if (!event.isFromGuild()) return; // No guild no report
+        if (TimeUtil.getTimeCreated(event.getMessageIdLong()).toLocalDateTime().isBefore(LocalDateTime.now().minusDays(1))) return; // If message older than 1 day
+        if (event.getEmoji().getType() != Emoji.Type.UNICODE || !event.getEmoji().getName().equals(Constants.WARNING.getName())) return; // If not warning emoji
+
+        final long max = BotStorage.getSettingAsLong(Setting.AUTO_REPORT_COUNT, 0);
+        if (event.getReaction().hasCount() && event.getReaction().getCount() < max) return;
 
         event.retrieveMessage().queue(message -> {
-            Message botMsgReport = REPORTS.getIfPresent(message.getIdLong());
-            final int totalWarn = message.getReaction(WARNING).getCount();
-            if (totalWarn < BotStorage.getSettingAsLong(Setting.AUTO_REPORT_COUNT, 0)) return;
+            MessageReaction reaction = message.getReaction(Constants.WARNING);
+            final int totalWarn = reaction != null ? reaction.getCount() : -1;
+            if (totalWarn < max) return;
+            DO_NOT_REPORT.put(message.getIdLong(), new Object());
 
             TextChannel channel = GuildUtil.getChannelFromSetting(event.getGuild(), Setting.BOT_REPORT_CHANNEL);
             if (channel != null) {
-                if (botMsgReport != null) {
-                    // If not null, we've already reported, and we should update the reaction total
+                EmbedBuilder builder = getReportEmbed(message);
 
-                    channel.retrieveMessageById(botMsgReport.getId()).queue(bMsg -> bMsg.editMessage(totalWarn + " :warning: reactions").queue());
-                } else {
-                    // New report
-
-                    EmbedBuilder builder = new EmbedBuilder()
-                            .setAuthor(UserUtil.getUserAsName(message.getAuthor()) + " (" + message.getAuthor().getIdLong() + ")", null, message.getAuthor().getAvatarUrl())
-                            .setDescription(String.format(DESCRIPTION, message.getId(), message.getJumpUrl(), message.getContentRaw()))
-                            .setTimestamp(Instant.now())
-                            .setColor(BotUtil.IDLE);
-
-                    for (int i = 0; i < message.getAttachments().size(); i++) {
-                        builder.addField("Attachment " + (i+1), "[View](" + message.getAttachments().get(i).getUrl() + ")", true);
-                    }
-
-                    channel.sendMessage(totalWarn + " :warning: reactions").addEmbeds(builder.build()).queue(botMessage -> {
-                        REPORTS.put(message.getIdLong(), botMessage);
-
-                        botMessage.editMessageComponents(ActionRow.of(Button.danger(message.getId(), "Validate Report"), Button.success("mh-" + botMessage.getId(), "Mark as handled"))).queue();
-
-                        // If the message wasn't checked in the 3-hour period, it will be marked as expired
-                        botMessage.editMessage("This report has expired.")
-                                .setComponents(Collections.emptyList())
-                                .setCheck(() -> REPORTS.getIfPresent(message.getIdLong()) != null)
-                                .queueAfter(3, TimeUnit.HOURS);
-                    });
-                }
+                channel.sendMessage(totalWarn + " :warning: reactions").addEmbeds(builder.build()).addActionRow(
+                        Button.success("y", "Mark valid"),
+                        Button.danger("n", "Mark invalid"),
+                        Button.danger(message.getChannel().getId() + '-' + message.getId(), "Delete original")
+                ).queue();
             }
-        });
+        }, new ErrorHandler().ignore(ErrorResponse.UNKNOWN_MESSAGE));
     }
 
     @Override
@@ -83,37 +76,110 @@ public class AutoReportListener extends ListenerAdapter {
         if (!event.isFromGuild()) return;
         if (event.isAcknowledged()) return;
 
-        if (event.getComponentId().startsWith("mh-")) {
-            event.editComponents(Collections.emptyList()).setContent(event.getMessage().getContentRaw() + ", marked as handled by " + UserUtil.getUserAsName(event.getUser())).queue();
-
-            // Remove from list if it exists
-            for (Map.Entry<Long, Message> entry : REPORTS.asMap().entrySet()) {
-                if (entry.getValue().getIdLong() == event.getMessageIdLong()) {
-                    REPORTS.invalidate(entry.getKey());
+        String[] args;
+        if (event.getComponentId().startsWith("y") || event.getComponentId().startsWith("n")) {
+            event.editMessage(String.format(RESPONSE, (event.getComponentId().startsWith("n") ? "invalid" : "valid"), UserUtil.getUserAsName(event.getUser()), event.getMessage().getContentRaw()))
+                    .setComponents(Collections.emptyList()).queue();
+            return;
+        } else if ((args = event.getComponentId().split("-")).length > 1) {
+            TextChannel channel = event.getGuild().getTextChannelById(args[0]);
+            if (channel != null) {
+                if (!event.getGuild().getSelfMember().hasPermission(channel, Permission.MESSAGE_MANAGE)) {
+                    // We can't delete it, so fail and tell them we can't.
+                    event.reply("I do not have permission to delete messages in " + channel.getAsMention() + "!").setEphemeral(true).queue();
                     return;
                 }
-            }
 
-            return;
-        }
-
-        // Get all reports, and search for the one this button wants
-        for (Map.Entry<Long, Message> entry : REPORTS.asMap().entrySet()) {
-            if (String.valueOf(entry.getKey()).equals(event.getComponentId())) {
-                // Disable buttons
-                event.editComponents(Collections.emptyList()).setContent(event.getMessage().getContentRaw() + ", marked valid by " + UserUtil.getUserAsName(event.getUser())).queue();
-
-                // Resend into PR channel
-                TextChannel channel = GuildUtil.getChannelFromSetting(Objects.requireNonNull(event.getGuild()), Setting.PARK_RANGER_CHANNEL);
-                if (channel != null) {
-                    channel.sendMessage(event.getUser().getAsMention() + " marked this as a valid report").addEmbeds(entry.getValue().getEmbeds()).queue();
-                    REPORTS.invalidate(entry.getKey());
-                }
+                event.editMessage(String.format(RESPONSE, "as deleted", UserUtil.getUserAsName(event.getUser()), event.getMessage().getContentRaw())).setComponents(Collections.emptyList()).queue();
+                channel.retrieveMessageById(args[1]).queue(message -> {
+                    message.delete().reason("Delete requested by " + UserUtil.getUserAsName(event.getUser())).queue();
+                }, new ErrorHandler().ignore(ErrorResponse.UNKNOWN_MESSAGE).handle(ErrorResponse.MISSING_PERMISSIONS, e -> {
+                    event.reply("I do not have permission to delete messages in " + channel.getAsMention() + "!").setEphemeral(true).queue();
+                }));
                 return;
             }
         }
 
-        // Once we reach here, it means it was an older button or it already expired
-        event.reply(":warning: Unknown or expired report.").setEphemeral(true).queue();
+        // Once we reach here, it's probably a legacy report.
+        event.reply(":question: Unknown interaction.").setEphemeral(true).queue();
     }
+
+    @Override
+    public void onMessageReceived(@NotNull MessageReceivedEvent event) {
+        checkMessageForReport(event.getMessage());
+    }
+
+    @Override
+    public void onMessageUpdate(@NotNull MessageUpdateEvent event) {
+        checkMessageForReport(event.getMessage());
+    }
+
+    @Override
+    public void onMessageDelete(@NotNull MessageDeleteEvent event) {
+        DO_NOT_REPORT.invalidate(event.getMessageIdLong());
+    }
+
+    private void checkMessageForReport(Message message) {
+        if (!message.isFromGuild()) return;
+        if (message.getAuthor().isBot()) return;
+        if (DO_NOT_REPORT.getIfPresent(message.getIdLong()) != null) return;
+        if (UserUtil.getMemberFromUser(message.getGuild(), message.getAuthor()).hasPermission(Permission.MESSAGE_MANAGE)) return;
+
+        List<String> blackListed = BotStorage.getSettingAsList(Setting.BLACKLISTED_KEYWORDS);
+        if (blackListed.isEmpty()) return;
+
+        String keyword = WordUtil.checkAgainstFilter(message.getContentRaw());
+
+        if (keyword != null) {
+            TextChannel channel = GuildUtil.getChannelFromSetting(message.getGuild(), Setting.BOT_REPORT_CHANNEL);
+            if (channel != null) {
+                EmbedBuilder builder = getReportEmbed(message);
+
+                channel.sendMessageEmbeds(builder.build()).addActionRow(
+                        Button.success("y", "Mark valid"),
+                        Button.danger("n", "Mark invalid"),
+                        Button.danger(message.getChannel().getId() + '-' + message.getId(), "Delete original")
+                ).addContent("blacklisted keyword `" + keyword + "`").queue();
+            }
+        }
+        /*
+        for (String word : blackListed) {
+            if (!message.getContentRaw().toLowerCase().contains(word) && !message.getContentRaw().toUpperCase().contains(word)) continue;
+            DO_NOT_REPORT.put(message.getIdLong(), new Object());
+
+
+            return;
+        }*/
+    }
+
+
+    private EmbedBuilder getReportEmbed(Message message) {
+        EmbedBuilder builder = new EmbedBuilder()
+                .setAuthor(UserUtil.getUserAsName(message.getAuthor()) + " (" + message.getAuthor().getIdLong() + ")", null, message.getAuthor().getAvatarUrl())
+                .setDescription(String.format(DESCRIPTION, message.getId(), message.getJumpUrl(), message.getContentRaw()))
+                .setFooter(message.isEdited() ? "This message was edited" : null)
+                .setTimestamp(Instant.now())
+                .setColor(ColorUtil.REPORT_YELLOW);
+
+        if (!message.getAttachments().isEmpty()) {
+            for (int i = 0; i < message.getAttachments().size(); i++) {
+                if (i == 0) {
+                    builder.setImage(message.getAttachments().get(i).getUrl());
+                }
+
+                builder.addField("Attachment " + (i+1), "[View](" + message.getAttachments().get(i).getUrl() + ")", true);
+            }
+        }
+
+        if (!message.getStickers().isEmpty()) {
+            for (int i = 0; i < message.getStickers().size(); i++) {
+                StickerItem sticker = message.getStickers().get(i);
+
+                builder.addField("Sticker " + (i+1), sticker.getName(), true);
+            }
+        }
+
+        return builder;
+    }
+
 }

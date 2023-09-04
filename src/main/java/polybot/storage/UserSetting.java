@@ -1,8 +1,11 @@
 package polybot.storage;
 
+import polybot.util.BotUtil;
+
 public enum UserSetting {
     LEVEL_CARD_BACKGROUND("true", "Toggle level card background"),
-    LEVEL_CARD_THEME("62d3f5", "Set the level card color theme");
+    LEVEL_CARD_FONT("Roboto", "Change the font used for the level card text (Use `&fonts` for a list of available fonts)"),
+    LEVEL_CARD_COLOR("62d3f5", "Changes the color of the level card progress bar + level text");
 
     final String description, defaultValue;
 
@@ -34,17 +37,7 @@ public enum UserSetting {
 
     public static UserSetting searchForSetting(String str) {
         for (UserSetting setting : UserSetting.values()) {
-            if (setting.friendlyName().equalsIgnoreCase(str) ||
-                    setting.key().equalsIgnoreCase(str) ||
-                    setting.name().equalsIgnoreCase(str) ||
-                    setting.friendlyName()
-                            .replace("message", "msg")
-                            .replace("image", "img")
-                            .replace("level", "lvl")
-                            .replace("background", "bg")
-                            .equalsIgnoreCase(str)) {
-                return setting;
-            }
+            if (BotUtil.settingNameMatch(str, setting.friendlyName(false), setting.key(), setting.name())) return setting;
         }
 
         return null;

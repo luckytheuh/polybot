@@ -1,7 +1,11 @@
 package polybot.storage;
 
+import net.dv8tion.jda.api.entities.Activity;
+import net.dv8tion.jda.api.entities.Member;
+import net.dv8tion.jda.api.entities.Role;
+import org.jetbrains.annotations.Nullable;
+import polybot.LevelEntry;
 import polybot.PolyBot;
-import polybot.levels.LevelEntry;
 import polybot.util.BotUtil;
 
 import javax.imageio.ImageIO;
@@ -16,9 +20,9 @@ import java.util.concurrent.Executors;
 public class BotStorage {
 
     private static final ExecutorService DB_WORKERS = Executors.newCachedThreadPool();
-    private static BufferedImage CARD_BACKGROUND;
-    private static final Map<Setting, String> SETTING_CACHE = Collections.synchronizedMap(new HashMap<>());
+    private static final Map<Setting, String> SETTING_CACHE = Collections.synchronizedMap(new EnumMap<>(Setting.class));
     private static final Map<Long, UserSettingEntry[]> USER_SETTING_CACHE = Collections.synchronizedMap(new HashMap<>());
+    private static BufferedImage CARD_BACKGROUND;
     private static final Connection connection;
 
     static {
@@ -29,12 +33,22 @@ public class BotStorage {
             initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `levels` (`id` INTEGER NOT NULL, `currLvl` INTEGER NOT NULL, `xp` INTEGER NOT NULL, `messages` INTEGER NOT NULL, PRIMARY KEY(`id`));");
             initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `settings` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`));");
             initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `userSettings` (`id` INTEGER NOT NULL, `key` TEXT NOT NULL, `value` TEXT NOT NULL);");
+            initDB.executeUpdate("CREATE TABLE IF NOT EXISTS `cooldown` (`id` INTEGER NOT NULL, `roles` TEXT NOT NULL);");
             initDB.close();
         } catch (ClassNotFoundException | SQLException e) {
             throw new RuntimeException(e);
         }
 
         changeCardImage(getSetting(Setting.CARD_IMAGE));
+    }
+
+    public static void closeStorage() {
+        DB_WORKERS.shutdown();
+        synchronized (connection) {
+            try {
+                connection.close();
+            } catch (SQLException ignored) {}
+        }
     }
 
     private static boolean changeCardImage(String url) { //this assumes the new url was added to the db and simply fetches
@@ -61,7 +75,22 @@ public class BotStorage {
     public static List<String> getSettingAsList(Setting setting) {
         String value = getSetting(setting, "");
         if (value.isBlank() || value.isEmpty()) return Collections.emptyList();
-        return new ArrayList<>(List.of(value.split(",")));
+        return List.of(value.split(","));
+    }
+
+    public static Map<String, String> getSettingAsMap(Setting setting) {
+        String value = getSetting(setting, "");
+        if (value.isBlank() || value.isEmpty()) return Collections.emptyMap();
+        Map<String, String> map = new HashMap<>();
+        String[] strings = value.split(",");
+
+        for (String str : strings) {
+            String[] values = str.split("\\|");
+            if (values.length == 1) map.put(values[0], null);
+            else map.put(values[0], values[1]);
+        }
+
+        return map;
     }
 
     public static String getSetting(Setting setting, String def) {
@@ -81,34 +110,44 @@ public class BotStorage {
         return def;
     }
 
-    public static void setSetting(final Setting setting, final String value) {
+    public static void setSetting(final Setting setting, String value, Boolean delete) {
         String existingValue = SETTING_CACHE.getOrDefault(setting, "");
-        boolean isClear = value.toLowerCase().startsWith("clear");
+        if (delete == null) {
+            delete = value.toLowerCase().trim().startsWith("delete ") || value.toLowerCase().trim().startsWith("remove ");
+            if (delete) value = value.substring(7);
+        }
+        boolean isClear = value.toLowerCase().trim().startsWith("clear");
 
         if (isClear) {
             SETTING_CACHE.put(setting, existingValue = "");
         } else if (setting.isAppendable()) {
-            existingValue = (existingValue.isBlank() || existingValue.isEmpty() ? "" : existingValue + ',') + value;
+            if (delete) {
+                List<String> values = new ArrayList<>(List.of(existingValue.split(",")));
+                values.remove(value);
+
+                existingValue = String.join(",", values);
+            } else existingValue = (existingValue.isBlank() || existingValue.isEmpty() ? "" : existingValue + ',') + value;
             SETTING_CACHE.put(setting, existingValue);
         } else {
             SETTING_CACHE.put(setting, existingValue = value);
         }
 
-        final String newValue = existingValue;
+        final String newValue = existingValue, finalValue = value;
         DB_WORKERS.submit(() -> {
             synchronized (connection) {
                 try (PreparedStatement statement = connection.prepareStatement("INSERT OR REPLACE INTO `settings` (`key`, `value`) VALUES ('" + setting.key() + "', ?);")) {
                     statement.setString(1, newValue);
                     statement.executeUpdate();
 
-                    if (setting == Setting.CARD_IMAGE) changeCardImage(isClear ? "" : value);
+                    if (setting == Setting.CARD_IMAGE) changeCardImage(isClear ? "" : finalValue);
+                    else if (setting == Setting.ACTIVITY_STATUS) PolyBot.getJDA().getPresence().setActivity(Activity.listening(newValue));
                 } catch (SQLException e) { logDatabaseError(OperationType.WRITING, e); }
             }
         });
     }
 
 
-    public static UserSettingEntry getUserSetting(long userId, UserSetting setting) { //TODO: find a system to allow caching the user settings while also keeping the key value method
+    public static UserSettingEntry getUserSetting(long userId, UserSetting setting) {
         if (USER_SETTING_CACHE.containsKey(userId)) {
             //return if the user setting in the cache is not null, otherwise fetch from db
 
@@ -130,6 +169,25 @@ public class BotStorage {
         }
 
         return new UserSettingEntry(setting);
+    }
+
+    public static List<UserSettingEntry> getUserSettings(List<LevelEntry> entries, UserSetting setting) {
+        List<UserSettingEntry> userSettingEntries = new ArrayList<>();
+
+        for (LevelEntry entry : entries) {
+            if (USER_SETTING_CACHE.containsKey(entry.getUserId())) {
+                UserSettingEntry e = USER_SETTING_CACHE.get(entry.getUserId())[setting.ordinal()];
+
+                if (e != null) {
+                    userSettingEntries.add(e);
+                    continue;
+                }
+            }
+
+            userSettingEntries.add(getUserSetting(entry.getUserId(), setting));
+        }
+
+        return userSettingEntries;
     }
 
     public static void setUserSetting(long userId, UserSettingEntry settingEntry) {
@@ -158,6 +216,41 @@ public class BotStorage {
 
 
 
+    public static List<Role> removeMemberFromCooldown(Member member) {
+        List<Role> roles = new ArrayList<>();
+
+        synchronized (connection) {
+            try (Statement statement = connection.createStatement()) {
+                try (ResultSet resultSet = statement.executeQuery("SELECT `roles` FROM `cooldown` WHERE `id`=" + member.getId() + ";")) {
+                    if (resultSet.next()) {
+                        String[] roleArray = resultSet.getString("roles").split(",");
+                        for (String str : roleArray) {
+                            Role role = member.getGuild().getRoleById(str);
+                            if (role != null) roles.add(role);
+                        }
+                    }
+                }
+
+                statement.executeUpdate("DELETE FROM `cooldown` WHERE `id`=" + member.getId() + ";");
+            } catch (SQLException e) { logDatabaseError(OperationType.READING, e); }
+        }
+
+        return roles;
+    }
+
+    public static void addMemberToCooldown(Member member, String roles) {
+        DB_WORKERS.submit(() -> {
+            synchronized (connection) {
+                try (PreparedStatement statement = connection.prepareStatement("INSERT INTO `cooldown` (`id`, `roles`) VALUES (?,?);")) {
+                    statement.setLong(1, member.getIdLong());
+                    statement.setString(2, roles);
+                    statement.executeUpdate();
+                } catch (SQLException e) { logDatabaseError(OperationType.WRITING, e); }
+            }
+        });
+    }
+
+
 
 
 
@@ -175,13 +268,34 @@ public class BotStorage {
             logDatabaseError(OperationType.READING, e);
             return 0;
         }
-    }//INDECIDES for id?
+    }
 
+    public static List<LevelEntry> getLevelEntries(int start, int limit) {
+        List<LevelEntry> entries = new ArrayList<>();
+
+        try (Statement statement = connection.createStatement()) {
+            try (ResultSet resultSet = statement.executeQuery("SELECT * FROM `levels` ORDER BY xp DESC LIMIT " + limit + " OFFSET " + start + ";")) {
+                while (resultSet.next()) {
+                    entries.add(new LevelEntry(resultSet.getLong("id"),
+                            resultSet.getInt("currLvl"),
+                            resultSet.getInt("xp"),
+                            start + entries.size()+1,
+                            resultSet.getInt("messages"),
+                            false)
+                    );
+                }
+            }
+        } catch (SQLException e) { logDatabaseError(OperationType.READING, e); }
+
+        return entries;
+    }
+
+    @Nullable
     public static synchronized LevelEntry getLevelEntry(long userId) {
         try (Statement statement = connection.createStatement()) {
-            try (ResultSet resultSet = statement.executeQuery("SELECT * FROM `levels` WHERE `id`=" + userId + ";")) {
+            try (ResultSet resultSet = statement.executeQuery("SELECT *, (SELECT COUNT(*) FROM `levels` e1 WHERE e1.xp >= e.xp) AS `rowNum` FROM `levels` e WHERE `id`=" + userId + ";")) {
                 // If we have an entry in the database, return it
-                if (resultSet.next()) return new LevelEntry(userId, resultSet.getInt("currLvl"), resultSet.getInt("xp"), 0, resultSet.getInt("messages"), false);
+                if (resultSet.next()) return new LevelEntry(userId, resultSet.getInt("currLvl"), resultSet.getInt("xp"), resultSet.getInt("rowNum"), resultSet.getInt("messages"), false);
             }
         } catch (SQLException e) {
             logDatabaseError(OperationType.READING, e);

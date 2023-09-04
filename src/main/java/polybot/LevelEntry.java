@@ -1,4 +1,4 @@
-package polybot.levels;
+package polybot;
 
 public class LevelEntry {
 

@@ -4,8 +4,10 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.utils.ImageProxy;
+import org.jetbrains.annotations.NotNull;
 import polybot.PolyBot;
 
+import javax.annotation.Nullable;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -25,6 +27,16 @@ public class UserUtil {
         });
     }
 
+    public static Member searchForMember(@NotNull Guild guild, String str) {
+        if (str == null || str.isEmpty() || str.isBlank()) return null;
+
+        User user = searchForUser(str);
+        if (user == null) return null;
+
+        return getMemberFromUser(guild, user);
+    }
+
+    @Nullable
     public static User searchForUser(String userStr) {
         // Can't do anything in this case
         if (userStr == null || userStr.isEmpty() || userStr.isBlank()) return null;
@@ -40,7 +52,7 @@ public class UserUtil {
         // The string was a @mention
         if (userStr.startsWith("<@") && userStr.endsWith(">")) {
             try {
-                long id = Long.parseLong(userStr.replace("<@", "").replace(">", ""));
+                long id = Long.parseLong(userStr.replaceAll("[<@>]", ""));
 
                 if (BotUtil.isValidId(id)) return getUser(id);
             } catch (NumberFormatException ignored) {}
@@ -61,7 +73,9 @@ public class UserUtil {
         // We can't do anything without both
         if (guild == null || user == null) return null;
 
-        return guild.retrieveMember(user).onErrorMap(t -> null).complete();
+        Member member = guild.getMember(user);
+
+        return member != null ? member : guild.retrieveMember(user).onErrorMap(t -> null).complete();
     }
 
     public static String getMemberAsName(Member member) {
@@ -73,7 +87,9 @@ public class UserUtil {
     }
 
     public static User getUser(long userId) {
-        return PolyBot.getJDA().retrieveUserById(userId).onErrorMap(t -> null).complete();
+        User user = PolyBot.getJDA().getUserById(userId);
+
+        return user != null ? user : PolyBot.getJDA().retrieveUserById(userId).onErrorMap(t -> null).complete();
     }
 
 }

@@ -24,10 +24,16 @@ public class UserSettingEntry {
     }
 
     public boolean setValue(String value) {
-        //TODO: do checks here to see if this value is appropriate
+        if (value.equalsIgnoreCase("reset") || value.equalsIgnoreCase("default")) {
+            this.value = userSetting.defaultValue;
+            return true;
+        }
+
         switch (userSetting) {
-            case LEVEL_CARD_THEME -> {
+            case LEVEL_CARD_COLOR -> {
                 if (ColorUtil.getColorFromString(value) == null) return false;
+            } case LEVEL_CARD_FONT -> {
+                if (Fonts.getFontFromString(value) == null) return false;
             } case LEVEL_CARD_BACKGROUND -> {
                 if (!(value.equalsIgnoreCase("false") || value.equalsIgnoreCase("true"))) return false;
             }

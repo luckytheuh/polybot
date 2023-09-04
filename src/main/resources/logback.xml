@@ -1,11 +1,21 @@
-<configuration debug="true">
-    <appender name="Console" class="ch.qos.logback.core.ConsoleAppender">
+<configuration debug="false">
+    <timestamp key="initTime" datePattern="yyy-MM-dd-HH.mm.ss"/>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>[ %d{HH:mm:ss} | %highlight(%-5level)] [%thread] %msg%n</pattern>
+            <pattern>[ %d{HH:mm:ss} | %highlight(%-5level)] %msg%n</pattern>
+        </encoder>
+    </appender>
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>logs/${initTime}.log</file>
+
+        <encoder>
+            <pattern>[%d{HH:mm:ss} | %-5level | %thread]: %msg%n</pattern>
         </encoder>
     </appender>
 
     <root level="info">
-        <appender-ref ref="Console" />
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="FILE"/>
     </root>
 </configuration>
